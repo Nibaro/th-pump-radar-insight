@@ -14,55 +14,56 @@ st.set_page_config(page_title="Pump Radar Analysis", layout="wide", page_icon="�
 # --- 1. DATA INGESTION ---
 @st.cache_data(ttl=600)
 def fetch_data():
-    # URL API ของคุณ (ตรวจสอบว่าใส่ Token ครบถ้วน)
+    # ตรวจสอบ URL API ให้ถูกต้อง
     API_URL = "https://thaipumpradar.com/api/export?fbclid=IwY2xjawQxb09leHRuA2FlbQIxMABicmlkETFxcmF4bm9VNVVnMFEzdUI4c3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHuXzVKJDQfjTdZLhr7h4Ks0wT4U-X03zvJv2WzUdSiyUmUKIfuin3onhoCao_aem_cM8VyyTuQRkh2EXh03E4Bg" 
     try:
         response = requests.get(API_URL, timeout=15)
         response.raise_for_status()
         data = response.json()
         
-        # 1. จัดการโครงสร้าง JSON ให้เป็น DataFrame
-        if isinstance(data, list):
-            df = pd.json_normalize(data)
-        elif isinstance(data, dict):
-            target_key = next((k for k in ['reports', 'data', 'results'] if k in data), None)
-            df = pd.json_normalize(data[target_key]) if target_key else pd.json_normalize([data])
-        else:
-            return pd.DataFrame()
-
-        if df.empty:
-            return df
-
-        # 2. ปรับชื่อ Column ให้เป็นพิมพ์เล็กทั้งหมดเพื่อป้องกัน Case Sensitive
-        df.columns = [str(c).lower() for c in df.columns]
-        
-        # 3. ตรวจจับชื่อ Column พิกัด (ค้นหาคำว่า lat, lon, lng)
-        lat_col = next((c for c in df.columns if 'lat' in c), None)
-        lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), None)
-
-        if lat_col and lon_col:
-            # เปลี่ยนชื่อคอลัมน์ที่หาเจอให้เป็น 'latitude' และ 'longitude' มาตรฐาน
-            df = df.rename(columns={lat_col: 'latitude', lon_col: 'longitude'})
+        # 1. จัดการข้อมูลรูปแบบ GeoJSON (เจาะไปที่ 'features')
+        if isinstance(data, dict) and 'features' in data:
+            # ใช้ pd.json_normalize แผ่ข้อมูลใน features ออกมา
+            df = pd.json_normalize(data['features'])
             
-            # แปลงค่าเป็นตัวเลข
+            # ลบคำนำหน้า 'properties.' ออกเพื่อให้เรียกใช้ง่ายขึ้น
+            df.columns = [c.replace('properties.', '') for c in df.columns]
+            
+            # 2. ดึงพิกัดจาก geometry.coordinates
+            # โดยปกติ GeoJSON จะเก็บเป็น [longitude, latitude]
+            if 'geometry.coordinates' in df.columns:
+                coords = df['geometry.coordinates'].tolist()
+                df['longitude'] = [c[0] if isinstance(c, list) else None for c in coords]
+                df['latitude'] = [c[1] if isinstance(c, list) else None for c in coords]
+            
+            # 3. ตรวจหาคอลัมน์สำรอง ถ้า geometry.coordinates ไม่มี
+            if 'latitude' not in df.columns or df['latitude'].isnull().all():
+                lat_col = next((c for c in df.columns if 'lat' in c.lower()), None)
+                lon_col = next((c for c in df.columns if 'lon' in c.lower() or 'lng' in c.lower()), None)
+                if lat_col and lon_col:
+                    df = df.rename(columns={lat_col: 'latitude', lon_col: 'longitude'})
+
+            # แปลงค่าเป็นตัวเลขและลบแถวที่ไม่มีพิกัด
             df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
             df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
+            df = df.dropna(subset=['latitude', 'longitude'])
+
+            # ตรวจสอบสถานะน้ำมัน (ถ้าไม่มีคอลัมน์ availability ให้มองว่าเป็น Available ไว้ก่อน)
+            if 'availability' not in df.columns:
+                # ลองหาคอลัมน์ที่มีคำว่า status หรือ available
+                status_col = next((c for c in df.columns if 'status' in c.lower()), None)
+                if status_col:
+                    df['availability'] = df[status_col]
+                else:
+                    df['availability'] = 'Available'
             
-            # ตรวจสอบสถานะ (Availability) - ถ้าไม่มีให้สร้างค่า Default
-            status_col = next((c for c in df.columns if 'availability' in c or 'status' in c), None)
-            if status_col:
-                df['availability'] = df[status_col].astype(str).str.strip()
-            else:
-                df['availability'] = 'Available' # สมมติว่ามีถ้าไม่มีคอลัมน์ระบุ
-                
-            return df.dropna(subset=['latitude', 'longitude'])
+            return df
         else:
-            # ถ้าหาไม่เจอจริงๆ ให้โชว์ชื่อคอลัมน์ทั้งหมดเพื่อ Debug
-            st.error(f"❌ หาพิกัดไม่เจอ! คอลัมน์ที่พบคือ: {list(df.columns)}")
+            st.error("❌ ข้อมูลที่ได้รับไม่ใช่รูปแบบ GeoJSON ที่คาดไว้")
             return pd.DataFrame()
 
     except Exception as e:
-        st.error(f"⚠️ เกิดข้อผิดพลาด: {e}")
+        st.error(f"⚠️ เกิดข้อผิดพลาดในการดึงข้อมูล: {e}")
         return pd.DataFrame()
 
 # --- 2. SIDEBAR FILTERS ---
