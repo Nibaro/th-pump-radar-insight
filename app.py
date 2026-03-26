@@ -9,11 +9,7 @@ import plotly.express as px
 import os
 
 # --- 1. การตั้งค่าหน้าเว็บ ---
-st.set_page_config(
-    page_title="RSPG Fuel Logistics & Spatial Mapping", 
-    layout="wide", 
-    page_icon="⛽"
-)
+st.set_page_config(page_title="RSPG Fuel Logistics & Spatial Mapping", layout="wide", page_icon="⛽")
 
 # --- 2. CSS เพื่อความคมชัดสูง ---
 st.markdown("""
@@ -32,9 +28,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. นิยามแบรนด์หลักและประเภทน้ำมัน ---
+# --- 3. นิยามแบรนด์หลัก ---
 MAJOR_BRANDS = ["PTT", "BANGCHAK", "PT", "SHELL", "CALTEX", "SUSCO", "ESSO"]
-AVAILABLE_FUEL_TYPES = ["E20", "G91", "G95", "Diesel", "Diesel B7"]
 
 # --- 4. ฟังก์ชันดึงข้อมูล (API Engine) ---
 @st.cache_data(ttl=600)
@@ -47,6 +42,7 @@ def fetch_data():
             df = pd.json_normalize(data['features'])
             df.columns = [c.replace('properties.', '').lower() for c in df.columns]
             
+            # พิกัด
             if 'geometry.coordinates' in df.columns:
                 coords = df['geometry.coordinates'].tolist()
                 df['longitude'] = [c[0] if isinstance(c, list) else None for c in coords]
@@ -56,10 +52,16 @@ def fetch_data():
             df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
             df = df.dropna(subset=['latitude', 'longitude'])
             
+            # ค้นหาคอลัมน์สำคัญ
             name_col = next((c for c in df.columns if 'name' in c or 'station' in c), df.columns[0])
-            df['raw_brand'] = df[name_col].astype(str).str.split().str[0].str.upper()
-            df['major_brand'] = df['raw_brand'].apply(lambda x: x if x in MAJOR_BRANDS else "แบรนด์อื่นๆ")
+            price_col = next((c for c in df.columns if 'price' in c), None)
+            fuel_col = next((c for c in df.columns if 'fuel' in c or 'type' in c), None)
             
+            # จัดการแบรนด์
+            df['major_brand'] = df[name_col].astype(str).str.split().str[0].str.upper()
+            df['major_brand'] = df['major_brand'].apply(lambda x: x if x in MAJOR_BRANDS else "แบรนด์อื่นๆ")
+            
+            # จัดการสถานะ
             status_col = next((c for c in df.columns if 'avail' in c or 'status' in c), None)
             def map_status(s):
                 s = str(s).lower()
@@ -68,19 +70,15 @@ def fetch_data():
                 return '⚪ ไม่ทราบสถานะ'
             df['status_group'] = df[status_col].apply(map_status) if status_col else '⚪ ไม่ทราบสถานะ'
             
-            price_col = next((c for c in df.columns if 'price' in c), None)
             if price_col: df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
-            
-            if 'fuel_types' not in df.columns:
-                df['fuel_types'] = "E20, G91, G95" # ข้อมูลจำลอง
                 
-            return df, name_col, 'price', 'fuel_types'
+            return df, name_col, price_col, fuel_col
         return pd.DataFrame(), None, None, None
     except Exception as e:
         st.error(f"❌ ระบบขัดข้อง: {e}")
         return pd.DataFrame(), None, None, None
 
-df_raw, name_col, price_col, fuel_types_col = fetch_data()
+df_raw, name_col, price_col, fuel_col = fetch_data()
 
 # --- 5. Sidebar (Filters) ---
 LOGO_RSPG = "logo_rspg.png"
@@ -107,7 +105,7 @@ if not df_raw.empty:
     radius_km = st.sidebar.select_slider("รัศมีวิเคราะห์ (กม.)", options=[1, 5, 10, 20, 50], value=10)
 
 st.sidebar.markdown("---")
-st.sidebar.info("**จัดทำโดย:** แผนกวิชาการ อพ.สธ.\n📞 02-282-1850 | 📧 rspg.local@gmail.com")
+st.sidebar.info("**จัดทำโดย:** แผนกวิชาการ อพ.สธ.\n📞 02-282-1850")
 
 # --- 6. Main Processing ---
 if not df_raw.empty:
@@ -115,45 +113,50 @@ if not df_raw.empty:
     my_loc = (user_lat, user_lon)
     df_f['distance_km'] = df_f.apply(lambda r: geodesic(my_loc, (r['latitude'], r['longitude'])).km, axis=1)
     df_final = df_f[df_f['distance_km'] <= radius_km].copy()
-    out_stock = df_final[df_final['status_group'] == '🔴 น้ำมันหมด']
     
-    # คำนวณราคาเฉลี่ย
-    avg_price = df_final[price_col].mean() if not df_final.empty else 0
+    # --- แก้ไขจุดที่เกิด KeyError ---
+    if price_col and price_col in df_final.columns:
+        avg_price = df_final[price_col].mean()
+    else:
+        avg_price = 0
 
     # --- 7. Dashboard Display ---
-    st.title("⛽ ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิง (RSPG Fuel Logistics)")
+    st.title("⛽ RSPG Fuel Logistics Dashboard")
     
     m1, m2, m3, m4 = st.columns(4)
+    out_stock = df_final[df_final['status_group'] == '🔴 น้ำมันหมด']
     m1.metric("ปั๊มในพื้นที่", len(df_final))
-    m2.metric("น้ำมันหมด", len(out_stock), delta=f"-{len(out_stock)}", delta_color="inverse")
+    m2.metric("สถานะน้ำมันหมด", len(out_stock), delta=f"-{len(out_stock)}", delta_color="inverse")
     m3.metric("ใกล้ที่สุด (กม.)", f"{df_final['distance_km'].min():.2f}" if not df_final.empty else "N/A")
-    
-    # --- จุดที่แก้ไข (บรรทัดที่ 168 เดิม) ---
     m4.metric("ราคาเฉลี่ยพื้นที่", f"{avg_price:.2f} บ." if avg_price > 0 else "N/A")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗺️ แผนที่พิกัด & Heatmap", "📊 Market Share", "📍 10 อันดับใกล้ที่สุด", "📋 สรุปสถานะ", "⛽ สถิติรายน้ำมัน"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ แผนที่พิกัด", "📊 Market Share", "📍 10 อันดับใกล้ที่สุด", "⛽ สถิติรายประเภทน้ำมัน"])
 
     with tab1:
         if not df_final.empty:
             m = folium.Map(location=my_loc, zoom_start=13, tiles='CartoDB Positron')
-            if not out_stock.empty:
-                HeatMap([[r['latitude'], r['longitude']] for _, r in out_stock.iterrows()], radius=15).add_to(m)
-            
             folium.Marker(location=my_loc, popup="สนง. อพ.สธ.", icon=folium.Icon(color='darkred', icon='university', prefix='fa')).add_to(m)
             cluster = MarkerCluster().add_to(m)
             for _, row in df_final.iterrows():
                 color = 'red' if 'หมด' in row['status_group'] else 'green'
-                nav_url = f"https://www.google.com/maps/dir/?api=1&destination={row['latitude']},{row['longitude']}"
-                popup_h = f"<b>{row[name_col]}</b><br><a href='{nav_url}' target='_blank'>📍 นำทาง</a>"
-                folium.Marker([row['latitude'], row['longitude']], popup=folium.Popup(popup_h, max_width=200), icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')).add_to(cluster)
+                popup_c = f"<b>{row[name_col]}</b><br>ห่าง: {row['distance_km']:.2f} กม."
+                folium.Marker([row['latitude'], row['longitude']], popup=popup_c, icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')).add_to(cluster)
             folium_static(m, width=1100)
+
+    with tab4:
+        st.subheader("📊 ข้อมูลแยกประเภทน้ำมัน (E20, G91, G95, Diesel)")
+        if fuel_col and fuel_col in df_final.columns:
+            # แตกข้อมูลประเภทน้ำมัน (Explode)
+            df_fuel = df_final.assign(fuel=df_final[fuel_col].str.split(',')).explode('fuel')
+            df_fuel['fuel'] = df_fuel['fuel'].str.strip()
+            
+            f_summary = df_fuel.groupby('fuel').agg({name_col: 'count', 'distance_km': 'min'}).reset_index()
+            f_summary.columns = ['ประเภทน้ำมัน', 'จำนวนสถานี', 'ใกล้ที่สุด (กม.)']
+            st.table(f_summary.sort_values('จำนวนสถานี', ascending=False))
+            
+            fig_fuel = px.bar(f_summary, x='ประเภทน้ำมัน', y='จำนวนสถานี', color='ประเภทน้ำมัน', text_auto=True)
+            st.plotly_chart(fig_fuel, use_container_width=True)
         else:
-            st.warning("⚠️ ไม่พบข้อมูลในพื้นที่")
-
-    # (ส่วน Tab อื่นๆ ทำงานได้ปกติเหมือนเวอร์ชันก่อนหน้า)
-    with tab2:
-        fig = px.pie(df_final, names='major_brand', hole=0.4)
-        st.plotly_chart(fig, use_container_width=True)
-
+            st.info("ℹ️ ข้อมูลจาก API ไม่ระบุประเภทน้ำมันย่อย")
 else:
-    st.warning("⚠️ กำลังรอข้อมูลจาก API...")
+    st.warning("⚠️ กำลังดึงข้อมูลจาก API...")
