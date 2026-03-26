@@ -7,13 +7,22 @@ from folium.plugins import MarkerCluster
 from geopy.distance import geodesic
 import plotly.express as px
 
-# --- ตั้งค่าหน้าเว็บ ---
-st.set_page_config(page_title="TH Pump Radar Insight", layout="wide", page_icon="⛽")
+# --- การตั้งค่าหน้าเว็บ ---
+st.set_page_config(page_title="RSPG - Fuel Analysis Dashboard", layout="wide", page_icon="⛽")
 
-# --- 1. ฟังก์ชันดึงข้อมูล (API Ingestion) ---
+# Custom CSS เพื่อความเป็นระเบียบและสวยงาม
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .css-1n76uvr { font-family: 'Sarabun', sans-serif; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 1. การดึงและประมวลผลข้อมูล (API Ingestion) ---
 @st.cache_data(ttl=600)
 def fetch_data():
-    # ตรวจสอบ URL เต็มของคุณที่มี Token (fbclid)
+    # หมายเหตุ: กรุณาใส่ URL เต็มที่มี Token ของคุณในบรรทัดนี้
     API_URL = "https://thaipumpradar.com/api/export?fbclid=..." 
     try:
         response = requests.get(API_URL, timeout=20)
@@ -30,127 +39,152 @@ def fetch_data():
                 df['longitude'] = [c[0] if isinstance(c, list) and len(c)>1 else None for c in coords]
                 df['latitude'] = [c[1] if isinstance(c, list) and len(c)>1 else None for c in coords]
             
+            # แปลงพิกัดเป็นตัวเลข
             df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
             df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
             df = df.dropna(subset=['latitude', 'longitude'])
             
+            # จัดการคอลัมน์ราคา
+            price_cols = [c for c in df.columns if 'price' in c]
+            for col in price_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
             if 'availability' not in df.columns:
                 df['availability'] = 'Available'
+                
             return df
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"API Error: {e}")
+        st.error(f"การดึงข้อมูลขัดข้อง: {e}")
         return pd.DataFrame()
 
 df_raw = fetch_data()
 
 # --- 2. ส่วนควบคุมด้านข้าง (Sidebar) ---
-st.sidebar.title("⛽ ตัวเลือกการวิเคราะห์")
+LOGO_URL = "https://www.rspg.or.th/images/logo_rspg.png" 
+st.sidebar.image(LOGO_URL, use_container_width=True)
+st.sidebar.markdown("<h4 style='text-align: center;'>โครงการอนุรักษ์พันธุกรรมพืชฯ (อพ.สธ.)</h4>", unsafe_allow_html=True)
 
 if not df_raw.empty:
+    st.sidebar.subheader("📍 พื้นที่ปฏิบัติงาน")
+    
     def get_safe_unique(df, col):
         if col and col in df.columns:
             return sorted([str(i) for i in df[col].dropna().unique()])
         return []
 
-    # ค้นหาชื่อคอลัมน์อัตโนมัติ
     prov_col = next((c for c in df_raw.columns if 'prov' in c), None)
     dist_col = next((c for c in df_raw.columns if 'amphoe' in c or 'dist' in c), None)
     subdist_col = next((c for c in df_raw.columns if 'tambon' in c or 'sub' in c), None)
     name_col = next((c for c in df_raw.columns if 'name' in c or 'station' in c), df_raw.columns[0])
-    fuel_col = next((c for c in df_raw.columns if 'fuel' in c or 'type' in c), None)
+    price_col = next((c for c in df_raw.columns if 'price' in c), None)
 
-    # --- ส่วนเลือกพื้นที่ ---
-    selected_prov = st.sidebar.selectbox("จังหวัด", ["ทั้งหมด"] + get_safe_unique(df_raw, prov_col))
+    # Filter จังหวัด > อำเภอ > ตำบล
+    sel_prov = st.sidebar.selectbox("เลือกจังหวัด", ["ทั้งหมด"] + get_safe_unique(df_raw, prov_col))
     
-    if selected_prov != "ทั้งหมด":
-        df_p = df_raw[df_raw[prov_col] == selected_prov]
-        selected_dist = st.sidebar.selectbox("อำเภอ", ["ทั้งหมด"] + get_safe_unique(df_p, dist_col))
-    else:
-        selected_dist = st.sidebar.selectbox("อำเภอ", ["ทั้งหมด"], disabled=True)
-
-    if selected_dist != "ทั้งหมด":
-        df_d = df_raw[(df_raw[prov_col] == selected_prov) & (df_raw[dist_col] == selected_dist)]
-        selected_subdist = st.sidebar.selectbox("ตำบล", ["ทั้งหมด"] + get_safe_unique(df_d, subdist_col))
-    else:
-        selected_subdist = st.sidebar.selectbox("ตำบล", ["ทั้งหมด"], disabled=True)
-
-    # --- ส่วนเลือกประเภทน้ำมัน (ใหม่!) ---
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("⛽ ประเภทน้ำมันที่ต้องการ")
-    # กำหนดประเภทน้ำมันมาตรฐาน
-    fuel_list = ['E20', '91', '95', 'G91', 'G95', 'B7', 'Diesel', 'E85']
-    selected_fuels = st.sidebar.multiselect("เลือกประเภทน้ำมัน (เลือกได้หลายรายการ)", fuel_list, default=['95', 'E20'])
+    df_p = df_raw.copy()
+    if sel_prov != "ทั้งหมด": df_p = df_p[df_p[prov_col] == sel_prov]
+    sel_dist = st.sidebar.selectbox("เลือกอำเภอ", ["ทั้งหมด"] + get_safe_unique(df_p, dist_col))
+    
+    df_d = df_p.copy()
+    if sel_dist != "ทั้งหมด": df_d = df_d[df_d[dist_col] == sel_dist]
+    sel_subdist = st.sidebar.selectbox("เลือกตำบล", ["ทั้งหมด"] + get_safe_unique(df_d, subdist_col))
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📐 พิกัดและรัศมี")
+    st.sidebar.subheader("⛽ ตั้งค่าการวิเคราะห์")
+    fuel_list = ['E20', '91', '95', 'G91', 'G95', 'B7', 'Diesel']
+    sel_fuels = st.sidebar.multiselect("ประเภทน้ำมัน", fuel_list, default=['95', 'E20'])
+    
     user_lat = st.sidebar.number_input("ละติจูด", value=13.935809, format="%.6f")
     user_lon = st.sidebar.number_input("ลองจิจูด", value=100.514827, format="%.6f")
-    radius_km = st.sidebar.select_slider("รัศมีค้นหา (กม.)", options=[1, 5, 10, 20, 50], value=10)
+    radius_km = st.sidebar.select_slider("รัศมีวิเคราะห์ (กม.)", options=[1, 5, 10, 20, 50], value=10)
 
-# --- 3. การประมวลผล (Filtering Logic) ---
+    # ข้อมูลผู้จัดทำ
+    st.sidebar.markdown("---")
+    st.sidebar.info(f"""
+    **ผู้จัดทำ:** นายนิรุตติ์ บาโรส  
+    แผนกวิชาการ อพ.สธ. (รองหัวหน้าแผนก ระดับ 7)  
+    📞 098-670-9105  
+    📧 baroseniruth@gmail.com
+    """)
+    # แก้ไขตรงนี้: ใช้ st.sidebar.caption เพื่อแสดงที่มาข้อมูล
+    st.sidebar.caption("ขอขอบคุณข้อมูล API จาก https://thaipumpradar.com/")
+
+# --- 3. การประมวลผลข้อมูล (Processing) ---
 if not df_raw.empty:
     df_f = df_raw.copy()
     
-    # 1. กรองเชิงพื้นที่
-    if selected_prov != "ทั้งหมด": df_f = df_f[df_f[prov_col] == selected_prov]
-    if selected_dist != "ทั้งหมด" and selected_dist: df_f = df_f[df_f[dist_col] == selected_dist]
-    if selected_subdist != "ทั้งหมด" and selected_subdist: df_f = df_f[df_f[subdist_col] == selected_subdist]
+    if sel_prov != "ทั้งหมด": df_f = df_f[df_f[prov_col] == sel_prov]
+    if sel_dist != "ทั้งหมด": df_f = df_f[df_f[dist_col] == sel_dist]
+    if sel_subdist != "ทั้งหมด": df_f = df_f[df_f[subdist_col] == sel_subdist]
 
-    # 2. คำนวณระยะทาง
     df_f['distance_km'] = df_f.apply(lambda r: geodesic((user_lat, user_lon), (r['latitude'], r['longitude'])).km, axis=1)
     df_final = df_f[df_f['distance_km'] <= radius_km].copy()
 
-    # 3. กรองประเภทน้ำมัน (Logic ค้นหาคำใน String)
-    if fuel_col and selected_fuels:
-        # สร้าง regex pattern เช่น '95|E20'
-        fuel_pattern = '|'.join(selected_fuels)
-        df_final = df_final[df_final[fuel_col].str.contains(fuel_pattern, case=False, na=False)]
+    if 'fuel_type' in df_final.columns and sel_fuels:
+        pattern = '|'.join(sel_fuels)
+        df_final = df_final[df_final['fuel_type'].str.contains(pattern, case=False, na=True)]
 
     # --- 4. การแสดงผล Dashboard ---
-    st.title("📊 รายงานสถานะน้ำมันเชิงพื้นที่")
+    st.title("⛽ ระบบบริหารจัดการพลังงานเชิงพื้นที่ (RSPG Energy Insight)")
     
-    # สรุปตัวเลขด้านบน
-    c1, c2, c3 = st.columns(3)
-    c1.metric("ปั๊มที่ตรงเงื่อนไข", len(df_final))
-    c2.metric("ประเภทน้ำมันที่เลือก", f"{len(selected_fuels)} ประเภท")
-    c3.metric("รัศมีวิเคราะห์", f"{radius_km} กม.")
+    with st.expander("📄 **บทสรุปผู้บริหาร (Executive Summary)**", expanded=True):
+        out_of_stock = len(df_final[df_final['availability'].str.contains('Out', na=False, case=False)])
+        st.write(f"""
+        จากการวิเคราะห์ข้อมูลเชิงพื้นที่ในรัศมี **{radius_km} กม.** รอบตำแหน่งเป้าหมาย 
+        พบสถานีบริการน้ำมันที่พร้อมให้บริการ **{len(df_final)} แห่ง** และพบปัญหาน้ำมันขาดแคลน (Out of Stock) จำนวน **{out_of_stock} แห่ง** ซึ่งอาจส่งผลกระทบต่อการเดินทางปฏิบัติงานในพื้นที่ **{sel_subdist if sel_subdist != 'ทั้งหมด' else 'โครงการฯ'}**
+        """)
 
-    tab1, tab2, tab3 = st.tabs(["🗺️ แผนที่พิกัด", "📈 วิเคราะห์ระยะทาง", "📋 ข้อมูลรายปั๊ม"])
+    with st.expander("💡 **ข้อเสนอแนะเชิงนโยบาย (Policy Recommendations)**"):
+        st.write("""
+        1. **มาตรการสำรอง:** ในพื้นที่ที่มีปัญหาน้ำมันขาดแคลนเกิน 20% ของสถานีทั้งหมด ควรพิจารณาสำรองเชื้อเพลิงที่ส่วนกลางอย่างน้อย 3 วัน
+        2. **การวางแผนเส้นทาง:** ให้เจ้าหน้าที่ตรวจสอบแผนที่ Real-time นี้ก่อนออกปฏิบัติงานภาคสนามเพื่อหลีกเลี่ยงจุดเสี่ยง
+        3. **ความร่วมมือ:** ควรใช้ข้อมูลนี้ประสานงานกับหน่วยงานที่เกี่ยวข้องในพื้นที่หากพบปัญหาน้ำมันขาดแคลนต่อเนื่องเกิน 48 ชั่วโมง
+        """)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("ปั๊มในพื้นที่วิเคราะห์", len(df_final))
+    m2.metric("สถานะน้ำมันหมด", out_of_stock, delta=f"-{out_of_stock}", delta_color="inverse")
+    min_dist = df_final['distance_km'].min() if not df_final.empty else 0
+    m3.metric("ปั๊มที่ใกล้ที่สุด", f"{min_dist:.2f} กม.")
+    
+    low_price = df_final[price_col].min() if price_col and not df_final[price_col].isnull().all() else 0
+    m4.metric("ราคาต่ำสุดในรัศมี", f"{low_price:.2f} บ." if low_price > 0 else "N/A")
+
+    tab1, tab2, tab3 = st.tabs(["🗺️ แผนที่พิกัดความเสี่ยง", "📊 วิเคราะห์เปรียบเทียบ", "📋 ข้อมูลรายสถานี"])
 
     with tab1:
         m = folium.Map(location=[user_lat, user_lon], zoom_start=13, tiles='CartoDB Positron')
         folium.Circle([user_lat, user_lon], radius=radius_km*1000, color='blue', fill=True, opacity=0.1).add_to(m)
-        folium.Marker([user_lat, user_lon], icon=folium.Icon(color='red', icon='home')).add_to(m)
+        folium.Marker([user_lat, user_lon], popup="ตำแหน่งพิกัดเป้าหมาย", icon=folium.Icon(color='red', icon='home')).add_to(m)
         
         cluster = MarkerCluster().add_to(m)
         for _, row in df_final.iterrows():
-            popup_info = f"<b>{row.get(name_col, 'N/A')}</b><br>ห่าง: {row['distance_km']:.2f} กม.<br>น้ำมัน: {row.get(fuel_col, 'ไม่ระบุ')}"
+            color = 'red' if 'Out' in str(row['availability']) else 'green'
+            price_val = f"<br>ราคา: {row[price_col]:.2f} บาท" if price_col and not pd.isnull(row[price_col]) else ""
             folium.Marker(
-                [row['latitude'], row['longitude']], 
-                popup=folium.Popup(popup_info, max_width=250)
+                [row['latitude'], row['longitude']],
+                popup=f"<b>{row.get(name_col, 'N/A')}</b><br>ระยะทาง: {row['distance_km']:.2f} กม.{price_val}",
+                icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')
             ).add_to(cluster)
         folium_static(m, width=1100)
 
     with tab2:
         if not df_final.empty:
-            top_15 = df_final.sort_values('distance_km').head(15)
-            fig = px.bar(top_15, x=name_col, y='distance_km', color='distance_km',
-                         title="15 ปั๊มที่ใกล้ที่สุดที่แนะนำ", labels={name_col: 'ชื่อปั๊ม', 'distance_km': 'ระยะทาง (กม.)'})
+            fig = px.bar(df_final.sort_values('distance_km').head(15), 
+                         x=name_col, y='distance_km', color='distance_km',
+                         title="15 สถานีน้ำมันที่ใกล้ที่สุด", labels={name_col: 'ชื่อสถานี', 'distance_km': 'ระยะทาง (กม.)'})
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("ไม่พบปั๊มที่มีน้ำมันประเภทที่เลือกในรัศมีนี้")
+            st.info("ไม่พบข้อมูลสำหรับการวิเคราะห์กราฟ")
 
     with tab3:
-        # เลือกคอลัมน์สำคัญมาแสดงในตาราง
-        cols = [name_col, 'distance_km', 'availability']
-        if fuel_col: cols.append(fuel_col)
-        if subdist_col: cols.insert(1, subdist_col)
-        
-        st.dataframe(df_final[cols].sort_values('distance_km'), use_container_width=True)
+        st.subheader("📋 ตารางข้อมูลสรุปรายสถานี")
+        cols_show = [name_col, 'distance_km', 'availability']
+        if price_col: cols_show.append(price_col)
+        st.dataframe(df_final[cols_show].sort_values('distance_km'), use_container_width=True)
         
         csv = df_final.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 ดาวน์โหลดรายงาน (CSV)", data=csv, file_name='fuel_report.csv', mime='text/csv')
-
+        st.download_button("📥 ดาวน์โหลดรายงาน (CSV)", data=csv, file_name='fuel_report_rspg.csv', mime='text/csv')
 else:
-    st.warning("⚠️ กำลังดึงข้อมูลจาก API หรือ ลิงก์ API ไม่ถูกต้อง")
+    st.warning("⚠️ ไม่พบข้อมูล กรุณาตรวจสอบการเชื่อมต่อ API ของท่าน")
