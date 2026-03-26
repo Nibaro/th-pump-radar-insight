@@ -149,30 +149,49 @@ if not df_raw.empty:
 
     tab1, tab2, tab3, tab4 = st.tabs(["🗺️ แผนที่พิกัด", "📊 Market Share", "📍 10 อันดับปั๊มใกล้ที่สุด", "📋 สรุปสถานะ & นำทาง"])
 
-    with tab1:
+   with tab1:
         st.subheader("🗺️ แผนที่พิกัด (Heatmap แสดงจุดเสี่ยงน้ำมันหมด)")
-        m = folium.Map(location=my_loc, zoom_start=13, tiles='CartoDB Positron')
-        if not out_df.empty:
-            HeatMap([[r['latitude'], r['longitude']] for _, r in out_df.iterrows()], radius=15).add_to(m)
         
-        cluster = MarkerCluster().add_to(m)
-        for _, row in df_final.iterrows():
-            color = 'red' if 'หมด' in row['status_group'] else 'green'
-            popup_html = f"""
-                <div style="font-family: sans-serif; min-width: 150px;">
-                    <b>{row[name_col]}</b><br>
-                    สถานะ: {row['status_group']}<br>
-                    ห่าง: {row['distance_km']:.2f} กม.<br><br>
-                    <a href="{row['map_link']}" target="_blank" 
-                       style="background-color: #4285F4; color: white; padding: 5px 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center;">
-                       📍 นำทาง
-                    </a>
-                </div>
-            """
-            folium.Marker([row['latitude'], row['longitude']], 
-                          popup=folium.Popup(popup_html, max_width=250), 
-                          icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')).add_to(cluster)
-        folium_static(m, width=1100)
+        # ตรวจสอบก่อนว่ามีข้อมูลไหม
+        if not df_final.empty:
+            m = folium.Map(location=my_loc, zoom_start=13, tiles='CartoDB Positron')
+            
+            # 1. Heatmap สำหรับจุดเสี่ยง
+            if not out_of_stock_df.empty:
+                heat_data = [[row['latitude'], row['longitude']] for _, row in out_of_stock_df.iterrows()]
+                HeatMap(heat_data, radius=15, blur=10, gradient={0.4: 'yellow', 0.6: 'orange', 1: 'red'}).add_to(m)
+            
+            # 2. Marker Cluster
+            cluster = MarkerCluster().add_to(m)
+            for _, row in df_final.iterrows():
+                color = 'red' if 'หมด' in str(row['status_group']) else 'green'
+                
+                # ป้องกันชื่อสถานีมีตัวอักษรพิเศษที่ทำระบบพัง (Escape Quotes)
+                clean_name = str(row[name_col]).replace("'", "\\'")
+                
+                # ปรับปรุง Link นำทางให้ถูกต้อง
+                nav_url = f"https://www.google.com/maps?q={row['latitude']},{row['longitude']}"
+                
+                popup_html = f"""
+                    <div style="font-family: sans-serif; min-width: 150px;">
+                        <b>{clean_name}</b><br>
+                        สถานะ: {row['status_group']}<br>
+                        ระยะทาง: {row['distance_km']:.2f} กม.<br><br>
+                        <a href="{nav_url}" target="_blank" 
+                           style="background-color: #4285F4; color: white; padding: 5px 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center;">
+                           📍 นำทางด้วย Google Maps
+                        </a>
+                    </div>
+                """
+                folium.Marker(
+                    [row['latitude'], row['longitude']], 
+                    popup=folium.Popup(popup_html, max_width=250), 
+                    icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')
+                ).add_to(cluster)
+            
+            folium_static(m, width=1100)
+        else:
+            st.warning("⚠️ ไม่พบข้อมูลสถานีน้ำมันในเงื่อนไขที่เลือก กรุณาปรับรัศมีหรือเลือกแบรนด์เพิ่มเติม")
 
     with tab2:
         st.subheader("🏢 ส่วนแบ่งแบรนด์หลัก (รวมทุกสาขาย่อย)")
