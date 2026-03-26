@@ -66,7 +66,7 @@ if os.path.exists(LOGO_FILE):
 else:
     st.sidebar.warning(f"⚠️ ไม่พบไฟล์ {LOGO_FILE} ในระบบ")
 
-st.sidebar.markdown("<h4 style='text-align: center;'>โครงการอนุรักษ์พันธุกรรมพืชฯ (อพ.สธ.)</h4>", unsafe_allow_html=True)
+st.sidebar.markdown("<h4 style='text-align: center;'>โครงการอนุรักษ์พันธุกรรมพืชอันเนื่องมาจากพระราชดำริฯ (อพ.สธ.)</h4>", unsafe_allow_html=True)
 
 if not df_raw.empty:
     def get_safe_unique(df, col):
@@ -95,12 +95,12 @@ if not df_raw.empty:
     sel_subdist = st.sidebar.selectbox("เลือกตำบล", ["ทั้งหมด"] + get_safe_unique(df_d, subdist_col))
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("⛽ ตั้งค่าการวิเคราะห์")
+    st.sidebar.subheader("⛽ ตั้งค่าการวิเคราะห์ Lat/Long สำนักงาน อพ.สธ. สวนจิตรลดา")
     fuel_list = ['E20', '91', '95', 'G91', 'G95', 'B7', 'Diesel']
     sel_fuels = st.sidebar.multiselect("ประเภทน้ำมัน", fuel_list, default=['95', 'E20'])
     
-    user_lat = st.sidebar.number_input("ละติจูด", value=13.935809, format="%.6f")
-    user_lon = st.sidebar.number_input("ลองจิจูด", value=100.514827, format="%.6f")
+    user_lat = st.sidebar.number_input("ละติจูด", value=13.769068578125859, format="%.6f") #พิกัด Latiude สำนักงาน อพ.สธ.
+    user_lon = st.sidebar.number_input("ลองจิจูด", value=100.52425116459443, format="%.6f") #พิกัด Longitude สำนักงาน อพ.สธ.
     radius_km = st.sidebar.select_slider("รัศมีวิเคราะห์ (กม.)", options=[1, 5, 10, 20, 50], value=10)
 
     # ข้อมูลผู้จัดทำ
