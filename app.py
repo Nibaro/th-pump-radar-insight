@@ -14,29 +14,55 @@ st.set_page_config(page_title="Pump Radar Analysis", layout="wide", page_icon="�
 # --- 1. DATA INGESTION ---
 @st.cache_data(ttl=600)
 def fetch_data():
-    # แทนที่ด้วย URL API จริงของคุณ
-    API_URL = "https://thaipumpradar.com/api/export?fbclid=..."
+    # URL API ของคุณ (ตรวจสอบว่าใส่ Token ครบถ้วน)
+    API_URL = "https://thaipumpradar.com/api/export?fbclid=..." 
     try:
         response = requests.get(API_URL, timeout=15)
+        response.raise_for_status()
         data = response.json()
+        
+        # 1. จัดการโครงสร้าง JSON ให้เป็น DataFrame
         if isinstance(data, list):
             df = pd.json_normalize(data)
         elif isinstance(data, dict):
             target_key = next((k for k in ['reports', 'data', 'results'] if k in data), None)
             df = pd.json_normalize(data[target_key]) if target_key else pd.json_normalize([data])
+        else:
+            return pd.DataFrame()
 
-        # ปรับชื่อ Column ให้เป็นมาตรฐาน
-        df.columns = [c.lower() for c in df.columns]
-        # ตรวจจับชื่อ Column พิกัดอัตโนมัติ
-        lat_col = next((c for c in df.columns if 'lat' in c), 'latitude')
-        lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), 'longitude')
-        df = df.rename(columns={lat_col: 'latitude', lon_col: 'longitude'})
+        if df.empty:
+            return df
 
-        df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
-        df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
-        return df.dropna(subset=['latitude', 'longitude'])
+        # 2. ปรับชื่อ Column ให้เป็นพิมพ์เล็กทั้งหมดเพื่อป้องกัน Case Sensitive
+        df.columns = [str(c).lower() for c in df.columns]
+        
+        # 3. ตรวจจับชื่อ Column พิกัด (ค้นหาคำว่า lat, lon, lng)
+        lat_col = next((c for c in df.columns if 'lat' in c), None)
+        lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), None)
+
+        if lat_col and lon_col:
+            # เปลี่ยนชื่อคอลัมน์ที่หาเจอให้เป็น 'latitude' และ 'longitude' มาตรฐาน
+            df = df.rename(columns={lat_col: 'latitude', lon_col: 'longitude'})
+            
+            # แปลงค่าเป็นตัวเลข
+            df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
+            df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
+            
+            # ตรวจสอบสถานะ (Availability) - ถ้าไม่มีให้สร้างค่า Default
+            status_col = next((c for c in df.columns if 'availability' in c or 'status' in c), None)
+            if status_col:
+                df['availability'] = df[status_col].astype(str).str.strip()
+            else:
+                df['availability'] = 'Available' # สมมติว่ามีถ้าไม่มีคอลัมน์ระบุ
+                
+            return df.dropna(subset=['latitude', 'longitude'])
+        else:
+            # ถ้าหาไม่เจอจริงๆ ให้โชว์ชื่อคอลัมน์ทั้งหมดเพื่อ Debug
+            st.error(f"❌ หาพิกัดไม่เจอ! คอลัมน์ที่พบคือ: {list(df.columns)}")
+            return pd.DataFrame()
+
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
+        st.error(f"⚠️ เกิดข้อผิดพลาด: {e}")
         return pd.DataFrame()
 
 # --- 2. SIDEBAR FILTERS ---
