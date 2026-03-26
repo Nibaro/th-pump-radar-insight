@@ -9,7 +9,7 @@ import plotly.express as px
 import os
 
 # --- 1. การตั้งค่าหน้าเว็บ ---
-st.set_page_config(page_title="RSPG Fuel Logistics & Mapping", layout="wide", page_icon="⛽")
+st.set_page_config(page_title="ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิงของเจ้าหน้าที่ อพ.สธ. (RSPG Fuel Logistics & Spatial Mapping)", layout="wide", page_icon="⛽")
 
 # --- 2. CSS เพื่อความคมชัด (High Contrast Metrics) ---
 st.markdown("""
