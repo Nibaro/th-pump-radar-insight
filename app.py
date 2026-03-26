@@ -15,7 +15,7 @@ st.set_page_config(page_title="Pump Radar Analysis", layout="wide", page_icon="�
 @st.cache_data(ttl=600)
 def fetch_data():
     # URL API ของคุณ (ตรวจสอบว่าใส่ Token ครบถ้วน)
-    API_URL = "https://thaipumpradar.com/api/export?fbclid=..." 
+    API_URL = "https://thaipumpradar.com/api/export?fbclid=IwY2xjawQxb09leHRuA2FlbQIxMABicmlkETFxcmF4bm9VNVVnMFEzdUI4c3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHuXzVKJDQfjTdZLhr7h4Ks0wT4U-X03zvJv2WzUdSiyUmUKIfuin3onhoCao_aem_cM8VyyTuQRkh2EXh03E4Bg" 
     try:
         response = requests.get(API_URL, timeout=15)
         response.raise_for_status()
