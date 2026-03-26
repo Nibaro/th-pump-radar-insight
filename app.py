@@ -117,7 +117,7 @@ if not df_raw.empty:
     out_stock = df_final[df_final['status_group'] == '🔴 น้ำมันหมด']
 
     # --- 7. Dashboard Display ---
-    st.title("⛽ ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิง (RSPG Fuel Logistics)")
+    st.title("⛽ ระบบภูมิสารสนเทศเพื่อสนับสนุนการวางแผนเชื้อเพลิงของเจ้าหน้าที่ อพ.สธ. (RSPG Fuel Logistics)")
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("ปั๊มในพื้นที่", len(df_final))
