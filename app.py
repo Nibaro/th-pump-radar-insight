@@ -15,7 +15,7 @@ st.set_page_config(
     page_icon="⛽"
 )
 
-# --- 2. CSS เพื่อความคมชัดสูง ---
+# --- 2. CSS เพื่อความคมชัดสูง (High Contrast) ---
 st.markdown("""
     <style>
     .main { background-color: #f0f2f6; }
@@ -28,7 +28,7 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { color: #000000 !important; font-weight: bold !important; font-size: 1.1rem !important; }
     [data-testid="stMetricValue"] { color: #003366 !important; font-weight: 800 !important; font-size: 2.2rem !important; }
-    /* จัดระเบียบ Sidebar */
+    /* จัดระเบียบ Sidebar Logo */
     [data-testid="stSidebar"] [data-testid="column"] { display: flex; align-items: center; }
     </style>
     """, unsafe_allow_html=True)
@@ -112,9 +112,11 @@ if not df_raw.empty:
     my_loc = (user_lat, user_lon)
     df_f['distance_km'] = df_f.apply(lambda r: geodesic(my_loc, (r['latitude'], r['longitude'])).km, axis=1)
     df_final = df_f[df_f['distance_km'] <= radius_km].copy()
+    
+    # แยกข้อมูลปั๊มที่น้ำมันหมดมาทำ Heatmap
     out_stock = df_final[df_final['status_group'] == '🔴 น้ำมันหมด']
 
-    # --- 7. Display ---
+    # --- 7. Dashboard Display ---
     st.title("⛽ ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิง (RSPG Fuel Logistics)")
     
     c1, c2, c3, c4 = st.columns(4)
@@ -124,21 +126,31 @@ if not df_raw.empty:
     avg_v = df_final[price_col].mean() if price_col and not df_final.empty else 0
     c4.metric("ราคาเฉลี่ยพื้นที่", f"{avg_v:.2f} บ." if avg_v > 0 else "N/A")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ แผนที่พิกัด", "📊 Market Share", "📍 10 อันดับใกล้ที่สุด", "📋 สรุปสถานะ & นำทาง"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ แผนที่พิกัด & Heatmap", "📊 Market Share", "📍 10 อันดับใกล้ที่สุด", "📋 สรุปสถานะ & นำทาง"])
 
     with tab1:
-        st.subheader("🗺️ แผนที่พิกัดและความเสี่ยง")
+        st.subheader("🗺️ แผนที่พิกัดและความเสี่ยง (Heatmap: จุดน้ำมันหมด)")
         if not df_final.empty:
             m = folium.Map(location=my_loc, zoom_start=13, tiles='CartoDB Positron')
             
-            # --- ปักหมุด สำนักงาน อพ.สธ. (หมุดพิเศษ ไม่ Cluster) ---
+            # --- 1. เพิ่ม Heatmap (แสดงความหนาแน่นของจุดที่น้ำมันหมด) ---
+            if not out_stock.empty:
+                heat_data = [[row['latitude'], row['longitude']] for _, row in out_stock.iterrows()]
+                HeatMap(
+                    heat_data, 
+                    radius=15, 
+                    blur=10, 
+                    gradient={0.4: 'yellow', 0.65: 'orange', 1: 'red'}
+                ).add_to(m)
+
+            # --- 2. ปักหมุด สำนักงาน อพ.สธ. ---
             folium.Marker(
                 location=my_loc,
                 popup="<b>สำนักงาน อพ.สธ. (สวนจิตรลดา)</b>",
-                tooltip="จุดวิเคราะห์กลาง",
                 icon=folium.Icon(color='darkred', icon='university', prefix='fa')
             ).add_to(m)
 
+            # --- 3. Marker Cluster สำหรับสถานีบริการ ---
             cluster = MarkerCluster().add_to(m)
             for _, row in df_final.iterrows():
                 color = 'red' if 'หมด' in row['status_group'] else 'green'
@@ -148,17 +160,16 @@ if not df_raw.empty:
                 folium.Marker([row['latitude'], row['longitude']], 
                               popup=folium.Popup(popup_h, max_width=200),
                               icon=folium.Icon(color=color, icon='gas-pump', prefix='fa')).add_to(cluster)
+            
             folium_static(m, width=1100)
             
-            # --- ส่วนอธิบายสัญลักษณ์ใต้แผนที่ ---
+            # --- คำอธิบายสัญลักษณ์ ---
             st.markdown("""
             ### 🏛️ คำอธิบายสัญลักษณ์ (Legend)
-            | สัญลักษณ์ | ความหมาย |
-            | :--- | :--- |
-            | 🏛️ **หมุดสีแดงเข้ม (ไอคอนอาคาร)** | **สำนักงาน อพ.สธ. (จุดวิเคราะห์กลาง)** |
-            | 🟢 **หมุดสีเขียว** | สถานีบริการน้ำมันที่ **พร้อมบริการ** |
-            | 🔴 **หมุดสีแดง** | สถานีบริการน้ำมันที่ **น้ำมันหมด** |
-            | 🔥 **พื้นที่สีส้ม/แดง (Heatmap)** | โซนที่มีความหนาแน่นของสถานีที่น้ำมันหมด (Risk Zone) |
+            * 🏛️ **หมุดสีแดงเข้ม** : สำนักงาน อพ.สธ. (จุดวิเคราะห์กลาง)
+            * 🟢 **หมุดสีเขียว** : สถานีบริการที่ **พร้อมบริการ**
+            * 🔴 **หมุดสีแดง** : สถานีบริการที่ **น้ำมันหมด**
+            * 🔥 **แถบสี (Heatmap)** : โซนที่มีน้ำมันหมดหนาแน่น (**สีแดงเข้ม** = ความเสี่ยงสูงสุด)
             """)
         else:
             st.warning("⚠️ ไม่พบข้อมูลสถานีน้ำมันในเงื่อนไขที่เลือก")
