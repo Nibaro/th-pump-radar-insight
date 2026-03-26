@@ -109,7 +109,7 @@ if not df_raw.empty:
     df_final['map_link'] = df_final.apply(lambda r: f"https://www.google.com/maps/dir/?api=1&destination={r['latitude']},{r['longitude']}", axis=1)
 
     # --- 7. Dashboard Display ---
-    st.title("⛽ RSPG Fuel Logistics & Spatial Mapping")
+    st.title("⛽ ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิงของเจ้าหน้าที่ อพ.สธ. (RSPG Fuel Logistics & Spatial Mapping)")
     
     m1, m2, m3, m4 = st.columns(4)
     out_count = len(df_final[df_final['status_group'] == '🔴 น้ำมันหมด'])
