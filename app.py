@@ -10,27 +10,27 @@ import os
 
 # --- 1. การตั้งค่าหน้าเว็บ ---
 st.set_page_config(
-    page_title="RSPG Fuel Logistics & Spatial Mapping", 
-    layout="wide", 
+    page_title="RSPG Fuel Logistics & Spatial Mapping",
+    layout="wide",
     page_icon="⛽"
 )
 
 # --- 2. CSS เพื่อความคมชัดสูง ---
 st.markdown("""
-    <style>
-    .main { background-color: #f0f2f6; }
-    [data-testid="stMetric"] {
-        background-color: #ffffff !important;
-        border: 2px solid #003366 !important;
-        padding: 20px !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
-    }
-    [data-testid="stMetricLabel"] { color: #000000 !important; font-weight: bold !important; font-size: 1.1rem !important; }
-    [data-testid="stMetricValue"] { color: #003366 !important; font-weight: 800 !important; font-size: 2.2rem !important; }
-    [data-testid="stSidebar"] [data-testid="column"] { display: flex; align-items: center; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+.main { background-color: #f0f2f6; }
+[data-testid="stMetric"] {
+    background-color: #ffffff !important;
+    border: 2px solid #003366 !important;
+    padding: 20px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15) !important;
+}
+[data-testid="stMetricLabel"] { color: #000000 !important; font-weight: bold !important; font-size: 1.1rem !important; }
+[data-testid="stMetricValue"] { color: #003366 !important; font-weight: 800 !important; font-size: 2.2rem !important; }
+[data-testid="stSidebar"] [data-testid="column"] { display: flex; align-items: center; }
+</style>
+""", unsafe_allow_html=True)
 
 # --- 3. นิยามแบรนด์หลัก ---
 MAJOR_BRANDS = ["PTT", "BANGCHAK", "PT", "SHELL", "CALTEX", "SUSCO", "ESSO"]
@@ -38,8 +38,7 @@ MAJOR_BRANDS = ["PTT", "BANGCHAK", "PT", "SHELL", "CALTEX", "SUSCO", "ESSO"]
 # --- 4. ฟังก์ชันดึงข้อมูล (API Engine) ---
 @st.cache_data(ttl=600)
 def fetch_data():
-    # *** ตรวจสอบ URL ของคุณที่นี่ ***
-    API_URL = "https://thaipumpradar.com/api/export?fbclid=..." 
+    API_URL = "https://thaipumpradar.com/api/export?fbclid=..." # ใส่ URL ของคุณ
     try:
         response = requests.get(API_URL, timeout=20)
         data = response.json()
