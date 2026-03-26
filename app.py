@@ -130,7 +130,7 @@ if not df_raw.empty:
         df_final = df_final[df_final['fuel_type'].str.contains(pattern, case=False, na=True)]
 
     # --- 5. การแสดงผล Dashboard ---
-    st.title("⛽ ระบบบริหารจัดการเชิงพื้นที่เพื่อการวางแผนเติมน้ำมันเชื้อเพลิงรถยนต์ (RSPG Fuel Energy Insight)")
+    st.title("⛽ ระบบสารสนเทศภูมิสารสนเทศเพื่อการวางแผนเชื้อเพลิง (RSPG Fuel Logistics & Spatial Mapping)")
     
     # บทสรุปสำหรับผู้บริหาร
     with st.expander("📄 **บทสรุปผู้บริหาร (Executive Summary)**", expanded=True):
